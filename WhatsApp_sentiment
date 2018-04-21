@@ -1,0 +1,118 @@
+#====================================================================================================================================================#
+#                                                    Sentiment analysis in R
+#                                                   --------------------------
+# Description: 
+#              
+#====================================================================================================================================================#
+#__________________________________________________________________________________________
+#
+#     Authors:        Roopali Lalwani
+#     Description :   The program below perfomrs sentiment analysis using the 'tm' package in R on a WhatsApp chat
+#
+#------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------
+
+
+# Detaching all loaded packages (except for base packages) 
+
+detachAllPackages <- function() {
+  
+  basic.packages <- c("package:stats","package:graphics","package:grDevices","package:utils","package:datasets","package:methods","package:base")
+  
+  package.list <- search()[ifelse(unlist(gregexpr("package:",search()))==1,TRUE,FALSE)]
+  
+  package.list <- setdiff(package.list,basic.packages)
+  
+  if (length(package.list)>0)  for (package in package.list) detach(package, character.only=TRUE)
+  
+}
+
+detachAllPackages()
+
+# list all packages we'd need
+list_of_packages <- c('ggplot2', 'lubridate', 'Scale', 'reshape2', 'tm', 'SnowballC', 'wordcloud', 'RColorBrewer',
+                     'stringr', 'syuzhet', 'dplyr', 'rsudioapi', 'slam')
+
+
+# install packages, if not already installed
+new_packages<- list_of_packages[!(list_of_packages %in% installed.packages()[,"Package"])]
+ if(length(new_packages)) install.packages(new_packages, repos = "http://cran.us.r-project.org")
+
+# Loading all reguired packages
+lapply(list_of_packages, require, character.only = TRUE)
+
+
+# Setting path to that of this document using rstudioapi package
+path <- dirname(rstudioapi::getActiveDocumentContext()$path)
+path <- paste0(path, "/")
+setwd(path)
+
+
+# Reading a WhatsApp chat document 
+text <- readLines("chat_1.txt")
+str(text)  # the variable is a character vector of length n, where n is the # of messages in the chat
+
+
+# Convert the character vector 'text' into a Vector source
+# VectorSource function converts the character vector of length n into n separate documents
+# Corpus then binds those n separate documents into one object
+docs <- Corpus(VectorSource(text))
+
+# Cleaning the chat data using content_transformer and tm_map function
+clean_data <- content_transformer(function (x , pattern) gsub(pattern, " ", x))
+
+docs <- tm_map(docs, clean_data, "/")
+docs <- tm_map(docs, clean_data, "@")
+docs <- tm_map(docs, clean_data, "\\|")
+docs <- tm_map(docs, content_transformer(tolower))
+docs <- tm_map(docs, removeNumbers)
+docs <- tm_map(docs, removeWords, stopwords("english"))
+# stopwords are words like 'a', 'the', 'you', 'yours' etc. Just run stopwords('english') if you want to look at the entire list.
+# Stopwords have no significance in sentiment analysis
+
+docs <- tm_map(docs, removeWords, c("roopali","ekta", "desai", "lalwani", "roops")) # remove words which represent names from the chat
+docs <- tm_map(docs, removePunctuation)
+docs <- tm_map(docs, stripWhitespace)
+docs <- tm_map(docs, stemDocument)
+
+# Now we have the chat as clean collection of documets (each nessage is a document), next, we need to make a Document term matrix out of it
+# Visit https://en.wikipedia.org/wiki/Document-term_matrix to understand what it is
+
+dtm <- as.matrix(TermDocumentMatrix(docs))
+
+# printing dtm so we can see what we are dealing with
+dtm # every message in the chat is called a term here, and you can see if the term is present in a doc (1) or not (0)
+
+# sum the count of occurance of each term, sort the terms from high freq to low freq
+term_count <- sort(rowSums(dtm), decreasing=TRUE)
+
+# Prepare a Data frame from the named numeric vector 'term_count'
+data <- data.frame(word = names(term_count), freq=term_count)
+head(data)
+
+# generate the wordcloud
+set.seed(111)
+wordcloud(words = data$word, freq = data$freq, min.freq = 1,
+          max.words=500, random.order=FALSE, rot.per=0.35,
+          colors=brewer.pal(8, "Dark2"))
+
+
+# fetch sentiment words from texts
+# https://cran.r-project.org/web/packages/syuzhet/vignettes/syuzhet-vignette.html
+Sentiment <- get_nrc_sentiment(text)
+head(Sentiment)
+text <- cbind(text,Sentiment)
+
+# Count the sentiment words by category
+TotalSentiment <- data.frame(colSums(text[, c(2:11)]))
+names(TotalSentiment) <- "count"
+
+TotalSentiment <- cbind("sentiment" = rownames(TotalSentiment), TotalSentiment)
+rownames(TotalSentiment) <- NULL
+
+# total sentiment score of all texts
+ggplot(data = TotalSentiment, aes(x = sentiment, y = count)) +
+  geom_bar(aes(fill = sentiment), stat = "identity") +
+  theme(legend.position = "none") +
+  xlab("Sentiment") + ylab("Total Count") + ggtitle("Total Sentiment Score")
+
